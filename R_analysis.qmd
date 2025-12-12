@@ -1,0 +1,270 @@
+---
+title: "R Analysis Protocol"
+author: "Alison Bateman"
+date: today 
+date-fromat: long 
+format: 
+  html: 
+    theme: cosmo 
+    toc: true
+---
+
+# R Analysis
+
+For R, I decided to use commands instead of scripts, so that it could all be seen within the command line, especially since I included so many notes within the code chunks.
+
+## Load Libraries
+
+```{r}
+library(DESeq2)      # for normalization / VST
+library(tximport)    # for merging Salmon quantifications
+library(readr)       # read_tsv
+library(dplyr)       # data manipulation
+library(tibble)      # rownames_to_column
+library(tidyr)       # pivot_longer / pivot_wider
+library(ggplot2)     # plots
+
+```
+
+## Merging Salmon Files
+
+```{r}
+#Make a directory vector
+
+dir <- "/fs/ess/PAS2880/users/bateman139/final_project/results/6_R_analysis"
+list.files(dir)
+
+#Read sample IDs from samples.txt
+library(readr)
+samples <- read_tsv(file.path(dir, "samples.txt"), col_names = FALSE)
+colnames(samples) <- "sample_id"
+
+samples
+
+#Build the named vector of quant.sf paths:
+#Build the paths to each quant.sf
+files <- file.path(dir, paste0(samples$sample_id, "_quant.sf"))
+
+#Give each path a name 
+names(files) <- samples$sample_id
+
+files
+all(file.exists(files))  #should be TRUE
+
+#Read tx2gene table: TXNAME, GENEID
+tx2gene <- read_tsv(file.path(dir, "tx2gene.tsv"),
+                    col_names = c("TXNAME", "GENEID"))
+#Run tximport to get gene-level counts from Salmon
+txi_gene <- tximport(files,
+                     type = "salmon",
+                     tx2gene = tx2gene,
+                     countsFromAbundance = "lengthScaledTPM")
+#Extract matrices and create integer count matrix for DESeq2
+counts_gene <- txi_gene$counts       # integer-ish counts for DESeq2
+abundance_gene <- txi_gene$abundance # TPM-ish
+length_gene <- txi_gene$length       # effective lengths
+# IMPORTANT: make an integer matrix for DESeq2
+count_mat <- round(counts_gene)
+
+
+```
+
+# Compare All Tissue types
+
+Build a DESeq dataset with all samples
+
+```{r}
+all_meta <- data.frame(
+  sample_id = c("SRR1555695","SRR1555696","SRR1555697",
+                "SRR1555736","SRR1555737"),
+  tissue    = c("ROOT","LEAF","STEM","TUBER_INIT","TUBER_MAT"),
+  row.names = c("SRR1555695","SRR1555696","SRR1555697",
+                "SRR1555736","SRR1555737"),
+  stringsAsFactors = FALSE
+)
+all_meta$tissue <- factor(all_meta$tissue)
+#subset to these samples
+all_counts <- count_mat[, all_meta$sample_id]
+
+#DESeq2 object with design ~ 1 (no DE, just normalization/VST)
+dds_all <- DESeqDataSetFromMatrix(
+  countData = all_counts,
+  colData   = all_meta,
+  design    = ~ 1
+)
+#Filter low-count genes
+dds_all <- dds_all[rowSums(counts(dds_all)) > 1, ]
+
+#Variance-stabilizing transformation
+vsd_all <- vst(dds_all, blind = TRUE)
+vst_mat_all <- assay(vsd_all)
+```
+
+Create a PCA of all tissue types
+
+```{r}
+vsd_all <- vst(dds_all, blind = TRUE)
+
+pcaData <- plotPCA(vsd_all, intgroup = "tissue", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+ggplot(pcaData, aes(PC1, PC2, color = tissue)) +
+  geom_point(size = 4) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  theme_bw() +
+  ggtitle("PCA of all tissues")
+
+
+```
+
+# Inulin gene expression plots per tissue
+
+Make a VST matrix for all tissues
+
+Define the inulin pathway gene sets\
+Gene sets were taken from:
+
+Wang S, Wang A, Chen R, Xu D, Wang H, Jiang F, Liu H, Qian W, Fan W. Haplotype-resolved chromosome-level genome of hexaploid Jerusalem artichoke provides insights into its origin, evolution, and inulin metabolism. Plant Commun. 2024 Mar 11;5(3):100767. doi: 10.1016/j.xplc.2023.100767. Epub 2023 Nov 17. PMID: 37974403; PMCID: PMC10943552.
+
+```{r}
+#Define inulin pathway gene sets
+# 1-SST
+sst_genes <- c(
+  "Htub.h1tg000901l.g452",
+  "Htub.h1tg000771l.g282",
+  "Htub.h1tg001494l.g460",
+  "Htub.h1tg000671l.g384",
+  "Htub.h1tg000040l.g630",
+  "Htub.h1tg000520l.g110"
+)
+
+# 1-FFT
+fft_genes <- c(
+  "Htub.h1tg000901l.g450",
+  "Htub.h1tg000771l.g281",
+  "Htub.h1tg001494l.g462",
+  "Htub.h1tg002779l.g128",
+  "Htub.h1tg000559l.g342",
+  "Htub.h2tg001975l.g125"
+)
+
+# 1-FEHI
+fehi_genes <- c(
+  "Htub.h1tg000592l.g407",
+  "Htub.h1tg002659l.g270",
+  "Htub.h1tg003296l.g162"
+)
+
+# 1-FEHII
+fehii_genes <- c(
+  "Htub.h1tg001546l.g21",
+  "Htub.h1tg001546l.g24",
+  "Htub.h1tg003845l.g288",
+  "Htub.h1tg003845l.g290",
+  "Htub.h1tg002335l.g504",
+  "Htub.h1tg002335l.g507",
+  "Htub.h1tg004993l.g532",
+  "Htub.h1tg000046l.g461",
+  "Htub.h2tg001803l.g255"
+)
+
+inulin_genes <- c(sst_genes, fft_genes, fehi_genes, fehii_genes)
+
+# Only keep genes that exist in VST matrix
+inulin_present <- intersect(inulin_genes, rownames(vst_mat_all))
+
+# Long format expression table
+expr_inulin <- vst_mat_all[inulin_present, ] %>%
+  as.data.frame() %>%
+  rownames_to_column("gene") %>%
+  pivot_longer(
+    cols      = -gene,
+    names_to  = "sample_id",
+    values_to = "vst_expr"
+  ) %>%
+  left_join(all_meta, by = "sample_id") %>%
+  mutate(
+    family = case_when(
+      gene %in% sst_genes   ~ "SST",
+      gene %in% fft_genes   ~ "FFT",
+      gene %in% fehi_genes  ~ "FEHI",
+      gene %in% fehii_genes ~ "FEHII",
+      TRUE                  ~ "Other"
+    )
+  )
+
+```
+
+Create expression dataframe for expressed inulin genes
+
+```{r}
+expr_prod_summary <- expr_inulin %>%
+  filter(family %in% c("SST", "FFT")) %>%       # inulin-producing
+  group_by(tissue, family) %>%
+  summarize(mean_vst = mean(vst_expr), .groups = "drop")
+
+# order tissues so tubers are on the right
+expr_prod_summary$tissue <- factor(
+  expr_prod_summary$tissue,
+  levels = c("ROOT", "LEAF", "STEM", "TUBER_INIT", "TUBER_MAT")
+)
+expr_allfam_summary <- expr_inulin %>%
+  group_by(tissue, family) %>%
+  summarize(mean_vst = mean(vst_expr), .groups = "drop")
+
+expr_allfam_summary$tissue <- factor(
+  expr_allfam_summary$tissue,
+  levels = c("ROOT", "LEAF", "STEM", "TUBER_INIT", "TUBER_MAT")
+)
+
+ggplot(expr_allfam_summary,
+       aes(x = tissue, y = mean_vst, fill = family)) +
+  geom_col(position = position_dodge(width = 0.85)) +
+  theme_bw() +
+  xlab("Tissue") +
+  ylab("Mean expression of inulin-pathway genes") +
+  ggtitle("Inulin synthesis (SST/FFT) vs degradation (FEHI/FEHII) across tissues") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title  = element_text(hjust = 0.5)
+  )
+
+```
+
+Create a production/synthesis to degradation ratio table
+
+```{r}
+prod_deg_summary <- expr_inulin %>%
+  mutate(role = case_when(
+    family %in% c("SST", "FFT")    ~ "production",
+    family %in% c("FEHI", "FEHII") ~ "degradation",
+    TRUE                           ~ "other"
+  )) %>%
+  filter(role %in% c("production", "degradation")) %>%
+  group_by(tissue, role) %>%
+  summarize(mean_vst = mean(vst_expr), .groups = "drop") %>%
+  pivot_wider(names_from = role, values_from = mean_vst) %>%
+  mutate(prod_deg_ratio = production / degradation)
+
+prod_deg_summary
+
+```
+
+Plot that table:
+
+```{r}
+ggplot(prod_deg_summary,
+       aes(x = factor(tissue, levels = c("ROOT","LEAF","STEM","TUBER_INIT","TUBER_MAT")),
+           y = prod_deg_ratio)) +
+  geom_col(fill = "grey40") +
+  theme_bw() +
+  xlab("Tissue") +
+  ylab("Production / degradation (SST+FFT vs FEHI+FEHII)") +
+  ggtitle("Mature Tuber tissues have higher inulin synthesis:degradation ratio") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title  = element_text(hjust = 0.5))
+
+```
+
+###

@@ -1,0 +1,10 @@
+sratoolkit.tar.gz
+datasets
+sratoolkit.3.2.1-ubuntu64
+fastq/
+ref/
+results/
+slurm-*.out
+*.log
+*.err
+*.out
