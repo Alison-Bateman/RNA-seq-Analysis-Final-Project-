@@ -1,17 +1,3 @@
----
-title: "Protocol"
-author: "Alison Bateman"
-date: today
-date-format: long
-format:
-  html:
-    code-fold: true
-    theme: cosmo
-    toc: true
-execute:
-  enabled: true
----
-
 # Project Goal
 
 I'll be going through the RNA seq analysis workflow using FASTQ raw reads from *Helianthus tuberosus* (sunchoke) from a study in 2014, and a sunchoke reference genome from last year(Wang et al., 2024). Because I need to do RNA sequencing in the future with sunchoke, having scripts prepared for me to feed files into for analysis will help streamline my future research.
